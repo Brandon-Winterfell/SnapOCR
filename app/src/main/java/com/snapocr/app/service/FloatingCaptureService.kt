@@ -27,6 +27,7 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.EditText
 import android.widget.ImageButton
@@ -40,6 +41,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -50,13 +52,15 @@ class FloatingCaptureService : Service() {
         const val EXTRA_RESULT_DATA = "extra_result_data"
         const val ACTION_STOP_SERVICE = "action_stop_service"
         const val ACTION_NEW_OCR_RESULT = "com.snapocr.app.NEW_OCR_RESULT"
+        const val ACTION_SERVICE_STATE_CHANGED = "com.snapocr.app.SERVICE_STATE_CHANGED"
+        const val EXTRA_IS_RUNNING = "extra_is_running"
         const val EXTRA_OCR_TEXT = "extra_ocr_text"
 
         const val CHANNEL_ID = "snap_ocr_capture_channel"
         const val NOTIFICATION_ID = 2001
 
+        @Volatile
         var isRunning = false
-            private set
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -72,7 +76,7 @@ class FloatingCaptureService : Service() {
     private var imageReader: ImageReader? = null
 
     private var screenWidth = 1080
-    private var screenHeight = 1920
+    private var screenHeight = 2400
     private var screenDensity = 420
 
     private var bubbleLayoutParams: WindowManager.LayoutParams? = null
@@ -81,7 +85,6 @@ class FloatingCaptureService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        isRunning = true
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         computeScreenMetrics()
@@ -90,6 +93,8 @@ class FloatingCaptureService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_SERVICE) {
+            isRunning = false
+            notifyStateChanged(false)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -106,7 +111,11 @@ class FloatingCaptureService : Service() {
             startForegroundServiceNotification()
             setupMediaProjection(resultCode, resultData)
             showFloatingBubble()
+            isRunning = true
+            notifyStateChanged(true)
         } else {
+            isRunning = false
+            notifyStateChanged(false)
             stopSelf()
         }
 
@@ -179,10 +188,50 @@ class FloatingCaptureService : Service() {
         mediaProjection = mediaProjectionManager?.getMediaProjection(resultCode, data)
         mediaProjection?.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
-                virtualDisplay?.release()
-                virtualDisplay = null
+                cleanupCapturePipeline()
+                isRunning = false
+                notifyStateChanged(false)
             }
         }, mainHandler)
+
+        setupVirtualDisplay()
+    }
+
+    private fun setupVirtualDisplay() {
+        try {
+            cleanupCapturePipeline()
+            computeScreenMetrics()
+
+            imageReader = ImageReader.newInstance(
+                screenWidth,
+                screenHeight,
+                PixelFormat.RGBA_8888,
+                3
+            )
+
+            virtualDisplay = mediaProjection?.createVirtualDisplay(
+                "SnapOCR_Capture",
+                screenWidth,
+                screenHeight,
+                screenDensity,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                imageReader?.surface,
+                null,
+                mainHandler
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, "截屏初始化异常: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun cleanupCapturePipeline() {
+        try {
+            virtualDisplay?.release()
+            virtualDisplay = null
+            imageReader?.close()
+            imageReader = null
+        } catch (_: Exception) {}
     }
 
     @SuppressLint("InflateParams", "ClickableViewAccessibility")
@@ -212,11 +261,13 @@ class FloatingCaptureService : Service() {
             y = screenHeight / 3
         }
 
+        val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
         var initialX = 0
         var initialY = 0
         var initialTouchX = 0f
         var initialTouchY = 0f
-        var isClick = false
+        var isDrag = false
+        var downTime = 0L
 
         floatingBubbleView?.setOnTouchListener { _, event ->
             val params = bubbleLayoutParams ?: return@setOnTouchListener false
@@ -226,22 +277,24 @@ class FloatingCaptureService : Service() {
                     initialY = params.y
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
-                    isClick = true
+                    isDrag = false
+                    downTime = System.currentTimeMillis()
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val deltaX = (event.rawX - initialTouchX).toInt()
-                    val deltaY = (event.rawY - initialTouchY).toInt()
-                    if (Math.abs(deltaX) > 10 || Math.abs(deltaY) > 10) {
-                        isClick = false
+                    val dx = (event.rawX - initialTouchX).toInt()
+                    val dy = (event.rawY - initialTouchY).toInt()
+                    if (Math.hypot(dx.toDouble(), dy.toDouble()) > touchSlop) {
+                        isDrag = true
+                        params.x = initialX + dx
+                        params.y = initialY + dy
+                        windowManager?.updateViewLayout(floatingBubbleView, params)
                     }
-                    params.x = initialX + deltaX
-                    params.y = initialY + deltaY
-                    windowManager?.updateViewLayout(floatingBubbleView, params)
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (isClick) {
+                    val duration = System.currentTimeMillis() - downTime
+                    if (!isDrag && duration < 550) {
                         captureScreenAndOcr()
                     }
                     true
@@ -254,87 +307,93 @@ class FloatingCaptureService : Service() {
         Toast.makeText(this, R.string.toast_service_started, Toast.LENGTH_SHORT).show()
     }
 
-    @SuppressLint("WrongConstant")
+    private fun captureCurrentFrame(): Bitmap? {
+        val reader = imageReader ?: return null
+        val image = reader.acquireLatestImage() ?: return null
+        return try {
+            val planes = image.planes
+            val buffer = planes[0].buffer
+            val pixelStride = planes[0].pixelStride
+            val rowStride = planes[0].rowStride
+            val rowPadding = rowStride - pixelStride * screenWidth
+
+            val bitmap = Bitmap.createBitmap(
+                screenWidth + rowPadding / pixelStride,
+                screenHeight,
+                Bitmap.Config.ARGB_8888
+            )
+            bitmap.copyPixelsFromBuffer(buffer)
+            if (rowPadding == 0) {
+                bitmap
+            } else {
+                val clean = Bitmap.createBitmap(bitmap, 0, 0, screenWidth, screenHeight)
+                bitmap.recycle()
+                clean
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        } finally {
+            image.close()
+        }
+    }
+
     private fun captureScreenAndOcr() {
-        floatingBubbleView?.visibility = View.GONE
+        Toast.makeText(this, "正在截屏提取文字...", Toast.LENGTH_SHORT).show()
+
+        floatingBubbleView?.visibility = View.INVISIBLE
         removeResultDialog()
 
         mainHandler.postDelayed({
-            computeScreenMetrics()
+            serviceScope.launch {
+                var bitmap: Bitmap? = null
+                for (i in 0 until 8) {
+                    bitmap = captureCurrentFrame()
+                    if (bitmap != null) break
+                    delay(50)
+                }
 
-            imageReader = ImageReader.newInstance(
-                screenWidth,
-                screenHeight,
-                PixelFormat.RGBA_8888,
-                2
-            )
-
-            virtualDisplay = mediaProjection?.createVirtualDisplay(
-                "SnapOCR_Capture",
-                screenWidth,
-                screenHeight,
-                screenDensity,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                imageReader?.surface,
-                null,
-                mainHandler
-            )
-
-            imageReader?.setOnImageAvailableListener({ reader ->
-                val image = reader.acquireLatestImage()
-                if (image != null) {
-                    val planes = image.planes
-                    val buffer = planes[0].buffer
-                    val pixelStride = planes[0].pixelStride
-                    val rowStride = planes[0].rowStride
-                    val rowPadding = rowStride - pixelStride * screenWidth
-
-                    val bitmap = Bitmap.createBitmap(
-                        screenWidth + rowPadding / pixelStride,
-                        screenHeight,
-                        Bitmap.Config.ARGB_8888
-                    )
-                    bitmap.copyPixelsFromBuffer(buffer)
-                    image.close()
-
-                    val croppedBitmap = Bitmap.createBitmap(bitmap, 0, 0, screenWidth, screenHeight)
-
-                    virtualDisplay?.release()
-                    virtualDisplay = null
-                    imageReader?.close()
-                    imageReader = null
-
+                withContext(Dispatchers.Main) {
                     floatingBubbleView?.visibility = View.VISIBLE
-                    performOcrOnBitmap(croppedBitmap)
-                }
-            }, mainHandler)
-        }, 120)
-    }
-
-    private fun performOcrOnBitmap(bitmap: Bitmap) {
-        Toast.makeText(this, R.string.toast_screen_captured, Toast.LENGTH_SHORT).show()
-
-        serviceScope.launch {
-            try {
-                val recognizedText = withContext(Dispatchers.Default) {
-                    OcrManager.recognizeBitmap(bitmap)
                 }
 
-                if (recognizedText.isNotBlank()) {
-                    showResultDialog(recognizedText)
-
-                    val broadcastIntent = Intent(ACTION_NEW_OCR_RESULT).apply {
-                        putExtra(EXTRA_OCR_TEXT, recognizedText)
-                        setPackage(packageName)
+                if (bitmap == null) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@FloatingCaptureService,
+                            "未捕获到屏幕画面，正在重置通道...",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        setupVirtualDisplay()
                     }
-                    sendBroadcast(broadcastIntent)
-                } else {
-                    Toast.makeText(this@FloatingCaptureService, R.string.ocr_empty, Toast.LENGTH_LONG).show()
+                    return@launch
                 }
-            } catch (e: Exception) {
-                Toast.makeText(this@FloatingCaptureService, "识别错误: ${e.message}", Toast.LENGTH_SHORT).show()
+
+                try {
+                    val recognizedText = withContext(Dispatchers.Default) {
+                        OcrManager.recognizeBitmap(bitmap)
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        if (recognizedText.isNotBlank()) {
+                            showResultDialog(recognizedText)
+
+                            val broadcastIntent = Intent(ACTION_NEW_OCR_RESULT).apply {
+                                putExtra(EXTRA_OCR_TEXT, recognizedText)
+                                setPackage(packageName)
+                            }
+                            sendBroadcast(broadcastIntent)
+                        } else {
+                            Toast.makeText(this@FloatingCaptureService, R.string.ocr_empty, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@FloatingCaptureService, "识别错误: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
-        }
+        }, 120)
     }
 
     @SuppressLint("InflateParams")
@@ -404,9 +463,18 @@ class FloatingCaptureService : Service() {
         }
     }
 
+    private fun notifyStateChanged(running: Boolean) {
+        val stateIntent = Intent(ACTION_SERVICE_STATE_CHANGED).apply {
+            putExtra(EXTRA_IS_RUNNING, running)
+            setPackage(packageName)
+        }
+        sendBroadcast(stateIntent)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
+        notifyStateChanged(false)
         serviceScope.cancel()
 
         removeResultDialog()
@@ -418,12 +486,9 @@ class FloatingCaptureService : Service() {
             floatingBubbleView = null
         }
 
-        virtualDisplay?.release()
-        virtualDisplay = null
+        cleanupCapturePipeline()
         mediaProjection?.stop()
         mediaProjection = null
-        imageReader?.close()
-        imageReader = null
 
         Toast.makeText(this, R.string.toast_service_stopped, Toast.LENGTH_SHORT).show()
     }
