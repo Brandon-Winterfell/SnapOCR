@@ -10,9 +10,9 @@
         android:layout_width="56dp"
         android:layout_height="56dp"
         android:background="@drawable/bg_floating_bubble"
-        android:clickable="true"
+        android:clickable="false"
         android:elevation="8dp"
-        android:focusable="true"
+        android:focusable="false"
         android:gravity="center"
         android:orientation="vertical">
 
@@ -20,7 +20,9 @@
             android:id="@+id/ivFloatingIcon"
             android:layout_width="28dp"
             android:layout_height="28dp"
+            android:clickable="false"
             android:contentDescription="Screenshot OCR"
+            android:focusable="false"
             android:src="@drawable/ic_camera"
             app:tint="#FFFFFF" />
 
