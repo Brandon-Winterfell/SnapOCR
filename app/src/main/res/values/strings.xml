@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SnapOCR 文字提取器</string>
+    <string name="app_tagline">快速提取图片与截屏文字，一键复制全选</string>
+    
+    <!-- Navigation & Cards -->
+    <string name="card_floating_title">悬浮截屏实时识字</string>
+    <string name="card_floating_desc">开启后屏幕边缘显示小相机悬浮球。在任意 App（如微信、小红书、浏览器、PDF）点击悬浮球，即可一键截屏并就地提取文字，支持选词与全选复制。</string>
+    <string name="btn_start_floating">开启截屏悬浮球</string>
+    <string name="btn_stop_floating">关闭截屏悬浮球</string>
+    
+    <string name="card_multi_image_title">批量图片文字提取</string>
+    <string name="card_multi_image_desc">从手机相册单选或批量多选多张图片，自动并行离线识别中文、英文、数字与符号。</string>
+    <string name="btn_select_images">批量选取相册图片 (支持多选)</string>
+    
+    <!-- Actions -->
+    <string name="action_copy_all">全选复制全部文本</string>
+    <string name="action_clear_all">清空记录</string>
+    <string name="action_copy">复制文字</string>
+    <string name="action_share">分享</string>
+    <string name="action_delete">删除</string>
+    <string name="action_close">关闭</string>
+    
+    <!-- Status & Results -->
+    <string name="title_recognized_results">已提取结果列表</string>
+    <string name="status_recognizing">正在识别文字中…</string>
+    <string name="status_success">识别成功</string>
+    <string name="status_empty">该图未检测到有效文本</string>
+    <string name="status_error">识别发生错误</string>
+    <string name="empty_results_hint">暂无提取结果，请点击上方按钮批量添加图片，或启动悬浮截屏识别！</string>
+    
+    <!-- Toasts & Notifications -->
+    <string name="toast_copied">文字已成功复制到剪贴板！</string>
+    <string name="toast_copy_all_success">已将全部 %1$d 项结果合并复制到剪贴板！</string>
+    <string name="toast_nothing_to_copy">当前没有任何可复制的文字</string>
+    <string name="toast_screen_captured">截屏成功，正在离线识别文字…</string>
+    <string name="toast_service_started">悬浮球已启动！请在屏幕边缘查看</string>
+    <string name="toast_service_stopped">悬浮球已停止</string>
+    
+    <!-- Permissions -->
+    <string name="permission_overlay_title">需要“显示在其他应用上层”权限</string>
+    <string name="permission_overlay_message">为了在其他应用或桌面上显示悬浮截图按钮，请在系统设置中允许悬浮窗权限。</string>
+    <string name="btn_go_to_settings">去授权</string>
+    <string name="btn_cancel">取消</string>
+    <string name="permission_notification_prompt">建议开启通知权限以便后台截屏服务正常运行</string>
+    
+    <!-- Floating Dialog -->
+    <string name="dialog_capture_title">悬浮截屏识字结果</string>
+    <string name="dialog_copy_btn">一键全选复制</string>
+    <string name="dialog_view_in_app">在主程序中打开</string>
+    <string name="dialog_tip">提示：文字支持长按自由拖选，也可点击一键全选复制。</string>
+    
+    <!-- Foreground Service -->
+    <string name="notification_channel_name">SnapOCR 截屏识字服务</string>
+    <string name="notification_title">SnapOCR 悬浮截屏已常驻</string>
+    <string name="notification_text">轻触屏幕悬浮球即可随时截屏提取当前画面文字</string>
+</resources>
