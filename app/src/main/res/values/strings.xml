@@ -28,6 +28,12 @@
     <string name="status_empty">该图未检测到有效文本</string>
     <string name="status_error">识别发生错误</string>
     <string name="empty_results_hint">暂无提取结果，请点击上方按钮批量添加图片，或启动悬浮截屏识别！</string>
+    <string name="tip_text_selectable">提示：文本可自由长按滑动选择，也可点击右上角复制整段</string>
+    
+    <!-- OCR Status in Services -->
+    <string name="ocr_processing">正在识别中，请稍候…</string>
+    <string name="ocr_success">识别完成</string>
+    <string name="ocr_empty">未能在当前截屏中检测到有效文字</string>
     
     <!-- Toasts & Notifications -->
     <string name="toast_copied">文字已成功复制到剪贴板！</string>
@@ -36,6 +42,8 @@
     <string name="toast_screen_captured">截屏成功，正在离线识别文字…</string>
     <string name="toast_service_started">悬浮球已启动！请在屏幕边缘查看</string>
     <string name="toast_service_stopped">悬浮球已停止</string>
+    <string name="copy_success">已复制到剪贴板！</string>
+    <string name="copy_all_success">已合并复制全部文字！</string>
     
     <!-- Permissions -->
     <string name="permission_overlay_title">需要“显示在其他应用上层”权限</string>
