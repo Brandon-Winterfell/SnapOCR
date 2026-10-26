@@ -23,17 +23,19 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.DisplayMetrics
+import android.util.Log
+import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
+import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
-import com.google.android.material.button.MaterialButton
 import com.snapocr.app.MainActivity
 import com.snapocr.app.R
 import com.snapocr.app.ocr.OcrManager
@@ -44,10 +46,12 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.nio.ByteBuffer
 
 class FloatingCaptureService : Service() {
 
     companion object {
+        private const val TAG = "FloatingCaptureService"
         const val EXTRA_RESULT_CODE = "extra_result_code"
         const val EXTRA_RESULT_DATA = "extra_result_data"
         const val ACTION_STOP_SERVICE = "action_stop_service"
@@ -220,7 +224,7 @@ class FloatingCaptureService : Service() {
                 mainHandler
             )
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "VirtualDisplay setup failed", e)
             Toast.makeText(this, "截屏初始化异常: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
@@ -307,23 +311,46 @@ class FloatingCaptureService : Service() {
         Toast.makeText(this, R.string.toast_service_started, Toast.LENGTH_SHORT).show()
     }
 
+    /**
+     * Captures current frame from ImageReader safely handling GPU stride and buffer padding
+     */
     private fun captureCurrentFrame(): Bitmap? {
         val reader = imageReader ?: return null
-        val image = reader.acquireLatestImage() ?: return null
+        val image = try {
+            reader.acquireLatestImage()
+        } catch (e: Exception) {
+            Log.w(TAG, "acquireLatestImage exception: ${e.message}")
+            null
+        } ?: return null
+
         return try {
             val planes = image.planes
             val buffer = planes[0].buffer
             val pixelStride = planes[0].pixelStride
             val rowStride = planes[0].rowStride
-            val rowPadding = rowStride - pixelStride * screenWidth
+            val rawWidth = rowStride / pixelStride
 
-            val bitmap = Bitmap.createBitmap(
-                screenWidth + rowPadding / pixelStride,
-                screenHeight,
-                Bitmap.Config.ARGB_8888
-            )
-            bitmap.copyPixelsFromBuffer(buffer)
-            if (rowPadding == 0) {
+            buffer.rewind()
+
+            val bitmap = Bitmap.createBitmap(rawWidth, screenHeight, Bitmap.Config.ARGB_8888)
+            val requiredBytes = bitmap.byteCount
+            val remainingBytes = buffer.remaining()
+
+            if (remainingBytes >= requiredBytes) {
+                bitmap.copyPixelsFromBuffer(buffer)
+            } else {
+                // Some Android GPU HALs omit the final row padding bytes in the buffer.
+                // Allocate a direct buffer with exact capacity to avoid BufferUnderflowException.
+                val directBuffer = ByteBuffer.allocateDirect(requiredBytes)
+                directBuffer.put(buffer)
+                while (directBuffer.hasRemaining()) {
+                    directBuffer.put(0.toByte())
+                }
+                directBuffer.rewind()
+                bitmap.copyPixelsFromBuffer(directBuffer)
+            }
+
+            if (rawWidth == screenWidth) {
                 bitmap
             } else {
                 val clean = Bitmap.createBitmap(bitmap, 0, 0, screenWidth, screenHeight)
@@ -331,28 +358,36 @@ class FloatingCaptureService : Service() {
                 clean
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "captureCurrentFrame decode error", e)
             null
         } finally {
             image.close()
         }
     }
 
+    /**
+     * Temporarily hides floating bubble, captures screen, runs OCR, auto-copies to clipboard,
+     * and shows the interactive result popup.
+     */
     private fun captureScreenAndOcr() {
         Toast.makeText(this, "正在截屏提取文字...", Toast.LENGTH_SHORT).show()
 
+        // Temporarily hide bubble so it's not captured in screenshot
         floatingBubbleView?.visibility = View.INVISIBLE
         removeResultDialog()
 
+        // Wait 150ms for display to refresh without bubble
         mainHandler.postDelayed({
             serviceScope.launch {
                 var bitmap: Bitmap? = null
-                for (i in 0 until 8) {
+                // Retry frame acquisition up to 10 times (total 500ms)
+                for (i in 0 until 10) {
                     bitmap = captureCurrentFrame()
                     if (bitmap != null) break
                     delay(50)
                 }
 
+                // Restore bubble visibility immediately
                 withContext(Dispatchers.Main) {
                     floatingBubbleView?.visibility = View.VISIBLE
                 }
@@ -361,8 +396,8 @@ class FloatingCaptureService : Service() {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(
                             this@FloatingCaptureService,
-                            "未捕获到屏幕画面，正在重置通道...",
-                            Toast.LENGTH_SHORT
+                            "未能获取到屏幕画面，正在重置通道，请重试",
+                            Toast.LENGTH_LONG
                         ).show()
                         setupVirtualDisplay()
                     }
@@ -376,82 +411,112 @@ class FloatingCaptureService : Service() {
 
                     withContext(Dispatchers.Main) {
                         if (recognizedText.isNotBlank()) {
-                            showResultDialog(recognizedText)
+                            // 1. Immediate Auto-Copy to Clipboard so user can immediately paste into other apps!
+                            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val clip = ClipData.newPlainText("SnapOCR Screen Text", recognizedText)
+                            clipboard.setPrimaryClip(clip)
 
+                            Toast.makeText(
+                                this@FloatingCaptureService,
+                                "文字提取成功（${recognizedText.length} 字），已自动复制到剪贴板！",
+                                Toast.LENGTH_LONG
+                            ).show()
+
+                            // 2. Broadcast result to MainActivity if open
                             val broadcastIntent = Intent(ACTION_NEW_OCR_RESULT).apply {
                                 putExtra(EXTRA_OCR_TEXT, recognizedText)
                                 setPackage(packageName)
                             }
                             sendBroadcast(broadcastIntent)
+
+                            // 3. Show interactive selectable dialog overlay
+                            showResultDialog(recognizedText)
                         } else {
-                            Toast.makeText(this@FloatingCaptureService, R.string.ocr_empty, Toast.LENGTH_LONG).show()
+                            Toast.makeText(this@FloatingCaptureService, "当前屏幕未识别到文字，请换个界面重试", Toast.LENGTH_SHORT).show()
                         }
                     }
                 } catch (e: Exception) {
+                    Log.e(TAG, "OCR recognition error", e)
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(this@FloatingCaptureService, "识别错误: ${e.message}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@FloatingCaptureService, "文字识别异常: ${e.message}", Toast.LENGTH_LONG).show()
                     }
                 }
             }
-        }, 120)
+        }, 150)
     }
 
-    @SuppressLint("InflateParams")
+    @SuppressLint("InflateParams", "ClickableViewAccessibility")
     private fun showResultDialog(text: String) {
         removeResultDialog()
 
-        val inflater = LayoutInflater.from(this)
-        floatingDialogView = inflater.inflate(R.layout.dialog_ocr_result, null)
+        try {
+            val themedContext = ContextThemeWrapper(this, R.style.Theme_SnapOCR)
+            val inflater = LayoutInflater.from(themedContext)
+            floatingDialogView = inflater.inflate(R.layout.dialog_ocr_result, null)
 
-        val etDialogText = floatingDialogView?.findViewById<EditText>(R.id.etDialogText)
-        val btnDialogCopy = floatingDialogView?.findViewById<MaterialButton>(R.id.btnDialogCopy)
-        val btnDialogClose = floatingDialogView?.findViewById<ImageButton>(R.id.btnDialogClose)
-        val btnDialogViewInApp = floatingDialogView?.findViewById<MaterialButton>(R.id.btnDialogViewInApp)
+            val etDialogText = floatingDialogView?.findViewById<EditText>(R.id.etDialogText)
+            val btnDialogCopy = floatingDialogView?.findViewById<Button>(R.id.btnDialogCopy)
+            val btnDialogClose = floatingDialogView?.findViewById<ImageButton>(R.id.btnDialogClose)
+            val btnDialogViewInApp = floatingDialogView?.findViewById<Button>(R.id.btnDialogViewInApp)
 
-        etDialogText?.setText(text)
-        etDialogText?.setTextIsSelectable(true)
+            etDialogText?.setText(text)
+            etDialogText?.setTextIsSelectable(true)
 
-        btnDialogCopy?.setOnClickListener {
-            val clipText = etDialogText?.text?.toString()?.trim() ?: ""
-            if (clipText.isNotEmpty()) {
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                val clip = ClipData.newPlainText("SnapOCR Screen Text", clipText)
-                clipboard.setPrimaryClip(clip)
-                Toast.makeText(this, R.string.toast_copied, Toast.LENGTH_SHORT).show()
+            btnDialogCopy?.setOnClickListener {
+                val clipText = etDialogText?.text?.toString()?.trim() ?: ""
+                if (clipText.isNotEmpty()) {
+                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clip = ClipData.newPlainText("SnapOCR Screen Text", clipText)
+                    clipboard.setPrimaryClip(clip)
+                    Toast.makeText(this, R.string.toast_copied, Toast.LENGTH_SHORT).show()
+                }
             }
-        }
 
-        btnDialogClose?.setOnClickListener {
-            removeResultDialog()
-        }
-
-        btnDialogViewInApp?.setOnClickListener {
-            removeResultDialog()
-            val mainIntent = Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            btnDialogClose?.setOnClickListener {
+                removeResultDialog()
             }
-            startActivity(mainIntent)
-        }
 
-        val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
+            btnDialogViewInApp?.setOnClickListener {
+                removeResultDialog()
+                val mainIntent = Intent(this, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                }
+                startActivity(mainIntent)
+            }
 
-        val dialogParams = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            layoutType,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.CENTER
-        }
+            val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE
+            }
 
-        windowManager?.addView(floatingDialogView, dialogParams)
+            val dialogWidth = (screenWidth * 0.92f).toInt()
+            val dialogParams = WindowManager.LayoutParams(
+                dialogWidth,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                layoutType,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                        WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.CENTER
+            }
+
+            floatingDialogView?.setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_OUTSIDE) {
+                    removeResultDialog()
+                    true
+                } else {
+                    false
+                }
+            }
+
+            windowManager?.addView(floatingDialogView, dialogParams)
+        } catch (e: Exception) {
+            Log.e(TAG, "showResultDialog error", e)
+            Toast.makeText(this, "提取文字已复制到剪贴板", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun removeResultDialog() {
