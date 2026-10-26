@@ -22,20 +22,26 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.text.Selection
+import android.text.Spannable
 import android.util.DisplayMetrics
 import android.util.Log
+import android.view.ActionMode
 import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.LayoutInflater
+import android.view.Menu
+import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.Button
-import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.snapocr.app.MainActivity
 import com.snapocr.app.R
 import com.snapocr.app.ocr.OcrManager
@@ -429,7 +435,7 @@ class FloatingCaptureService : Service() {
                             }
                             sendBroadcast(broadcastIntent)
 
-                            // 3. Show interactive selectable dialog overlay
+                            // 3. Show interactive selectable dialog overlay with native drag handles and copy menu
                             showResultDialog(recognizedText)
                         } else {
                             Toast.makeText(this@FloatingCaptureService, "当前屏幕未识别到文字，请换个界面重试", Toast.LENGTH_SHORT).show()
@@ -454,16 +460,105 @@ class FloatingCaptureService : Service() {
             val inflater = LayoutInflater.from(themedContext)
             floatingDialogView = inflater.inflate(R.layout.dialog_ocr_result, null)
 
-            val etDialogText = floatingDialogView?.findViewById<EditText>(R.id.etDialogText)
-            val btnDialogCopy = floatingDialogView?.findViewById<Button>(R.id.btnDialogCopy)
+            val tvDialogText = floatingDialogView?.findViewById<TextView>(R.id.tvDialogText)
+            val tvCharCount = floatingDialogView?.findViewById<TextView>(R.id.tvCharCount)
+            val tvSelectionStatus = floatingDialogView?.findViewById<TextView>(R.id.tvSelectionStatus)
+            val btnSelectAllText = floatingDialogView?.findViewById<Button>(R.id.btnSelectAllText)
+            val btnCopySelected = floatingDialogView?.findViewById<Button>(R.id.btnCopySelected)
+            val btnDialogCopyAll = floatingDialogView?.findViewById<Button>(R.id.btnDialogCopyAll)
             val btnDialogClose = floatingDialogView?.findViewById<ImageButton>(R.id.btnDialogClose)
             val btnDialogViewInApp = floatingDialogView?.findViewById<Button>(R.id.btnDialogViewInApp)
 
-            etDialogText?.setText(text)
-            etDialogText?.setTextIsSelectable(true)
+            tvCharCount?.text = "共 ${text.length} 字"
+            tvDialogText?.setText(text, TextView.BufferType.SPANNABLE)
+            tvDialogText?.setTextIsSelectable(true)
 
-            btnDialogCopy?.setOnClickListener {
-                val clipText = etDialogText?.text?.toString()?.trim() ?: ""
+            fun updateSelectionUI() {
+                val start = tvDialogText?.selectionStart ?: -1
+                val end = tvDialogText?.selectionEnd ?: -1
+                if (start in 0..end && start != end) {
+                    val len = end - start
+                    btnCopySelected?.visibility = View.VISIBLE
+                    btnCopySelected?.text = "复制选中 (${len}字)"
+                    tvSelectionStatus?.text = "已选 $len 字，可拖动两端手柄调整"
+                    tvSelectionStatus?.setTextColor(ContextCompat.getColor(this, R.color.primary))
+                } else {
+                    btnCopySelected?.visibility = View.GONE
+                    tvSelectionStatus?.text = getString(R.string.dialog_tip_selection)
+                    tvSelectionStatus?.setTextColor(ContextCompat.getColor(this, R.color.text_hint))
+                }
+            }
+
+            // Quick select all action: highlights entire text with start/end drag handles visible
+            btnSelectAllText?.setOnClickListener {
+                val spannable = tvDialogText?.text as? Spannable
+                if (spannable != null && spannable.isNotEmpty()) {
+                    Selection.setSelection(spannable, 0, spannable.length)
+                    tvDialogText.requestFocus()
+                    updateSelectionUI()
+                }
+            }
+
+            // Quick copy currently selected text
+            btnCopySelected?.setOnClickListener {
+                val start = tvDialogText?.selectionStart ?: -1
+                val end = tvDialogText?.selectionEnd ?: -1
+                if (start in 0..end && start != end) {
+                    val clipText = tvDialogText?.text?.substring(start, end) ?: ""
+                    if (clipText.isNotEmpty()) {
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        val clip = ClipData.newPlainText("SnapOCR Selected", clipText)
+                        clipboard.setPrimaryClip(clip)
+                        Toast.makeText(this, getString(R.string.toast_copied_selection, clipText.length), Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+
+            // Standard ActionMode for selection floating menu (选中/复制/全选)
+            tvDialogText?.customSelectionActionModeCallback = object : ActionMode.Callback {
+                override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean {
+                    updateSelectionUI()
+                    return true
+                }
+
+                override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean {
+                    updateSelectionUI()
+                    return true
+                }
+
+                override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean {
+                    if (item?.itemId == android.R.id.copy) {
+                        val start = tvDialogText.selectionStart
+                        val end = tvDialogText.selectionEnd
+                        if (start in 0..end && start != end) {
+                            val clipText = tvDialogText.text.substring(start, end)
+                            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val clip = ClipData.newPlainText("SnapOCR Selected", clipText)
+                            clipboard.setPrimaryClip(clip)
+                            Toast.makeText(this@FloatingCaptureService, getString(R.string.toast_copied_selection, clipText.length), Toast.LENGTH_SHORT).show()
+                        }
+                        mode?.finish()
+                        return true
+                    }
+                    return false
+                }
+
+                override fun onDestroyActionMode(mode: ActionMode?) {
+                    mainHandler.postDelayed({ updateSelectionUI() }, 100)
+                }
+            }
+
+            // Touch events tracking to update selection handle changes
+            tvDialogText?.setOnTouchListener { v, event ->
+                v.onTouchEvent(event)
+                if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) {
+                    v.postDelayed({ updateSelectionUI() }, 60)
+                }
+                true
+            }
+
+            btnDialogCopyAll?.setOnClickListener {
+                val clipText = tvDialogText?.text?.toString()?.trim() ?: ""
                 if (clipText.isNotEmpty()) {
                     val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     val clip = ClipData.newPlainText("SnapOCR Screen Text", clipText)
@@ -501,6 +596,7 @@ class FloatingCaptureService : Service() {
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.CENTER
+                softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
             }
 
             floatingDialogView?.setOnTouchListener { _, event ->
