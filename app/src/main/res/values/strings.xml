@@ -20,6 +20,8 @@
     <string name="action_share">分享</string>
     <string name="action_delete">删除</string>
     <string name="action_close">关闭</string>
+    <string name="action_select_all">全选</string>
+    <string name="action_copy_selection">复制选中</string>
     
     <!-- Status & Results -->
     <string name="title_recognized_results">已提取结果列表</string>
@@ -44,6 +46,7 @@
     <string name="toast_service_stopped">悬浮球已停止</string>
     <string name="copy_success">已复制到剪贴板！</string>
     <string name="copy_all_success">已合并复制全部文字！</string>
+    <string name="toast_copied_selection">已复制所选文字（%1$d 字）</string>
     
     <!-- Permissions -->
     <string name="permission_overlay_title">需要“显示在其他应用上层”权限</string>
@@ -57,6 +60,7 @@
     <string name="dialog_copy_btn">一键全选复制</string>
     <string name="dialog_view_in_app">在主程序中打开</string>
     <string name="dialog_tip">提示：文字支持长按自由拖选，也可点击一键全选复制。</string>
+    <string name="dialog_tip_selection">长按文字出现拖动手柄，可自由左右拉动选择</string>
     
     <!-- Foreground Service -->
     <string name="notification_channel_name">SnapOCR 截屏识字服务</string>
