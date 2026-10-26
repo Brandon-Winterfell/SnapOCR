@@ -1,115 +1,103 @@
 <?xml version="1.0" encoding="utf-8"?>
-<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/dialogCardRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="20dp"
-    app:cardBackgroundColor="@color/surface"
-    app:cardCornerRadius="16dp"
-    app:cardElevation="12dp"
-    app:strokeColor="@color/divider"
-    app:strokeWidth="1dp">
+    android:layout_marginStart="16dp"
+    android:layout_marginEnd="16dp"
+    android:background="@drawable/bg_card"
+    android:elevation="12dp"
+    android:orientation="vertical"
+    android:padding="16dp">
 
+    <!-- Header -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp">
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
-        <!-- Header -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/dialog_capture_title"
-                android:textColor="@color/text_primary"
-                android:textSize="17sp"
-                android:textStyle="bold" />
-
-            <ImageButton
-                android:id="@+id/btnDialogClose"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/action_close"
-                android:src="@android:drawable/ic_menu_close_clear_cancel"
-                app:tint="@color/text_secondary" />
-
-        </LinearLayout>
-
-        <!-- Selectable Content Frame -->
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/bg_text_box"
-            android:padding="12dp">
-
-            <EditText
-                android:id="@+id/etDialogText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="@null"
-                android:focusable="true"
-                android:gravity="top|start"
-                android:lineSpacingExtra="4dp"
-                android:maxLines="10"
-                android:minLines="3"
-                android:scrollbars="vertical"
-                android:textIsSelectable="true"
-                android:textColor="@color/text_primary"
-                android:textSize="14sp" />
-
-        </FrameLayout>
-
-        <!-- Tip -->
         <TextView
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="@string/dialog_tip"
-            android:textColor="@color/text_hint"
-            android:textSize="11sp" />
+            android:layout_weight="1"
+            android:text="@string/dialog_capture_title"
+            android:textColor="@color/text_primary"
+            android:textSize="17sp"
+            android:textStyle="bold" />
 
-        <!-- Buttons Row -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:gravity="end"
-            android:orientation="horizontal">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnDialogViewInApp"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginEnd="8dp"
-                android:text="@string/dialog_view_in_app"
-                android:textSize="13sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnDialogCopy"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:backgroundTint="@color/primary"
-                android:text="@string/dialog_copy_btn"
-                android:textColor="#FFFFFF"
-                android:textSize="13sp"
-                app:cornerRadius="8dp"
-                app:icon="@drawable/ic_copy"
-                app:iconGravity="textStart"
-                app:iconSize="16dp" />
-
-        </LinearLayout>
+        <ImageButton
+            android:id="@+id/btnDialogClose"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/action_close"
+            android:src="@android:drawable/ic_menu_close_clear_cancel" />
 
     </LinearLayout>
 
-</com.google.android.material.card.MaterialCardView>
+    <!-- Selectable Content Frame -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/bg_text_box"
+        android:padding="12dp">
+
+        <EditText
+            android:id="@+id/etDialogText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@null"
+            android:gravity="top|start"
+            android:lineSpacingExtra="4dp"
+            android:maxLines="10"
+            android:minLines="3"
+            android:scrollbars="vertical"
+            android:textIsSelectable="true"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp" />
+
+    </FrameLayout>
+
+    <!-- Tip -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="@string/dialog_tip"
+        android:textColor="@color/text_hint"
+        android:textSize="11sp" />
+
+    <!-- Buttons Row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:gravity="end"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnDialogViewInApp"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_marginEnd="8dp"
+            android:text="@string/dialog_view_in_app"
+            android:textColor="@color/primary"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/btnDialogCopy"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:background="@drawable/bg_primary_btn"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:text="@string/dialog_copy_btn"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+    </LinearLayout>
+
+</LinearLayout>
