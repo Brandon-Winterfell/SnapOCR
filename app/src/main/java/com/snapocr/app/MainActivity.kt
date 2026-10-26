@@ -58,20 +58,26 @@ class MainActivity : AppCompatActivity() {
             startFloatingService()
         } else {
             Toast.makeText(this, "未授予截屏录屏权限，无法开启悬浮识别", Toast.LENGTH_SHORT).show()
+            updateFloatingServiceButton()
         }
     }
 
     private val ocrBroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == FloatingCaptureService.ACTION_NEW_OCR_RESULT) {
-                val recognizedText = intent.getStringExtra(FloatingCaptureService.EXTRA_OCR_TEXT) ?: return
-                val newItem = OcrItem(
-                    title = "截屏识别 #${ocrItems.size + 1}",
-                    recognizedText = recognizedText,
-                    status = OcrStatus.SUCCESS
-                )
-                adapter.addItem(newItem)
-                updateUIState()
+            when (intent?.action) {
+                FloatingCaptureService.ACTION_NEW_OCR_RESULT -> {
+                    val recognizedText = intent.getStringExtra(FloatingCaptureService.EXTRA_OCR_TEXT) ?: return
+                    val newItem = OcrItem(
+                        title = "截屏识别 #${ocrItems.size + 1}",
+                        recognizedText = recognizedText,
+                        status = OcrStatus.SUCCESS
+                    )
+                    adapter.addItem(newItem)
+                    updateUIState()
+                }
+                FloatingCaptureService.ACTION_SERVICE_STATE_CHANGED -> {
+                    updateFloatingServiceButton()
+                }
             }
         }
     }
@@ -106,6 +112,7 @@ class MainActivity : AppCompatActivity() {
         binding.recyclerViewResults.layoutManager = LinearLayoutManager(this)
         binding.recyclerViewResults.adapter = adapter
         updateUIState()
+        updateFloatingServiceButton()
     }
 
     private fun initListeners() {
@@ -214,20 +221,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startFloatingService() {
+        FloatingCaptureService.isRunning = true
+        updateFloatingServiceButton()
+
         val serviceIntent = Intent(this, FloatingCaptureService::class.java).apply {
             putExtra(FloatingCaptureService.EXTRA_RESULT_CODE, screenCaptureResultCode)
             putExtra(FloatingCaptureService.EXTRA_RESULT_DATA, screenCaptureResultData)
         }
         ContextCompat.startForegroundService(this, serviceIntent)
-        updateFloatingServiceButton()
     }
 
     private fun stopFloatingService() {
+        FloatingCaptureService.isRunning = false
+        updateFloatingServiceButton()
+
         val serviceIntent = Intent(this, FloatingCaptureService::class.java).apply {
             action = FloatingCaptureService.ACTION_STOP_SERVICE
         }
         startService(serviceIntent)
-        updateFloatingServiceButton()
     }
 
     private fun updateFloatingServiceButton() {
@@ -282,7 +293,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun registerBroadcastReceiver() {
-        val filter = IntentFilter(FloatingCaptureService.ACTION_NEW_OCR_RESULT)
+        val filter = IntentFilter().apply {
+            addAction(FloatingCaptureService.ACTION_NEW_OCR_RESULT)
+            addAction(FloatingCaptureService.ACTION_SERVICE_STATE_CHANGED)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(ocrBroadcastReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
