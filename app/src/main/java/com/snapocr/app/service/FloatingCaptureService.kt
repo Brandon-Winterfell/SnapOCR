@@ -494,7 +494,7 @@ class FloatingCaptureService : Service() {
                 val spannable = tvDialogText?.text as? Spannable
                 if (spannable != null && spannable.isNotEmpty()) {
                     Selection.setSelection(spannable, 0, spannable.length)
-                    tvDialogText.requestFocus()
+                    tvDialogText?.requestFocus()
                     updateSelectionUI()
                 }
             }
@@ -528,14 +528,16 @@ class FloatingCaptureService : Service() {
 
                 override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean {
                     if (item?.itemId == android.R.id.copy) {
-                        val start = tvDialogText.selectionStart
-                        val end = tvDialogText.selectionEnd
+                        val start = tvDialogText?.selectionStart ?: -1
+                        val end = tvDialogText?.selectionEnd ?: -1
                         if (start in 0..end && start != end) {
-                            val clipText = tvDialogText.text.substring(start, end)
-                            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val clip = ClipData.newPlainText("SnapOCR Selected", clipText)
-                            clipboard.setPrimaryClip(clip)
-                            Toast.makeText(this@FloatingCaptureService, getString(R.string.toast_copied_selection, clipText.length), Toast.LENGTH_SHORT).show()
+                            val clipText = tvDialogText?.text?.substring(start, end) ?: ""
+                            if (clipText.isNotEmpty()) {
+                                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                val clip = ClipData.newPlainText("SnapOCR Selected", clipText)
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(this@FloatingCaptureService, getString(R.string.toast_copied_selection, clipText.length), Toast.LENGTH_SHORT).show()
+                            }
                         }
                         mode?.finish()
                         return true
