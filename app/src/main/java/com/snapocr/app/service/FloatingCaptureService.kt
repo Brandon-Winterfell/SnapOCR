@@ -45,6 +45,7 @@ import androidx.core.content.ContextCompat
 import com.snapocr.app.MainActivity
 import com.snapocr.app.R
 import com.snapocr.app.ocr.OcrManager
+import com.snapocr.app.ui.FloatingResultActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -435,8 +436,17 @@ class FloatingCaptureService : Service() {
                             }
                             sendBroadcast(broadcastIntent)
 
-                            // 3. Show interactive selectable dialog overlay with native drag handles and copy menu
-                            showResultDialog(recognizedText)
+                            // 3. Launch translucent FloatingResultActivity to provide native Editor selection handles & ActionMode
+                            try {
+                                val dialogIntent = Intent(this@FloatingCaptureService, FloatingResultActivity::class.java).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                    putExtra(EXTRA_OCR_TEXT, recognizedText)
+                                }
+                                startActivity(dialogIntent)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "FloatingResultActivity launch failed, fallback to overlay dialog", e)
+                                showResultDialog(recognizedText)
+                            }
                         } else {
                             Toast.makeText(this@FloatingCaptureService, "当前屏幕未识别到文字，请换个界面重试", Toast.LENGTH_SHORT).show()
                         }
