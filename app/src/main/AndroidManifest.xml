@@ -49,6 +49,15 @@
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
+        <!-- Translucent Floating Dialog Activity for Native Drag Handles & Full Selection Menu -->
+        <activity
+            android:name=".ui.FloatingResultActivity"
+            android:exported="false"
+            android:theme="@style/Theme.SnapOCR.Dialog"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="stateAlwaysHidden" />
+
     </application>
 
 </manifest>
